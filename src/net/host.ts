@@ -2,6 +2,7 @@ import { Peer, type DataConnection } from 'peerjs'
 import { games, isPlayable } from '../games/registry'
 import type { GameId, PlayerIndex } from '../games/types'
 import { EMOJIS, normalizeName, type Profile } from '../profile/profile'
+import { keepBrokerAlive, watchConnection } from './liveness'
 import { isMessage, type Message, type RoomSnapshot } from './protocol'
 import { newRoomId } from './roomId'
 
@@ -19,6 +20,7 @@ export function createHostRoom(
 
   const roomId = newRoomId()
   const peer = new Peer(roomId)
+  keepBrokerAlive(peer)
   let snapshot: RoomSnapshot = {
     status: 'creating',
     you: 0,
@@ -27,6 +29,7 @@ export function createHostRoom(
     state: game.initialState(0),
   }
   let guest: DataConnection | null = null
+  let stopWatching = () => {}
 
   const emit = (patch: Partial<RoomSnapshot>) => {
     snapshot = { ...snapshot, ...patch }
@@ -51,8 +54,14 @@ export function createHostRoom(
     // A second visitor is turned away in "Room error states" (#12); for now they are ignored.
     if (guest) return
     guest = conn
+    conn.on('open', () => {
+      stopWatching = watchConnection(conn, () => onGuestLeft(conn))
+    })
+    // Covers a connection that fails before it opens, so the seat isn't held forever.
+    conn.on('close', () => onGuestLeft(conn))
+    conn.on('error', () => onGuestLeft(conn))
     conn.on('data', (data) => {
-      if (!isMessage(data)) return
+      if (!isMessage(data) || conn !== guest) return
       if (data.type === 'hello' && snapshot.status === 'waiting') {
         const guestProfile = {
           name: normalizeName(data.name),
@@ -67,6 +76,13 @@ export function createHostRoom(
     })
   })
 
+  // The seat opens again and the next guest starts a fresh game.
+  const onGuestLeft = (conn: DataConnection) => {
+    if (conn !== guest) return
+    guest = null
+    emit({ status: 'waiting', players: [profile, null], state: game.initialState(0) })
+  }
+
   // Never call onEvent synchronously, so the caller can hold the returned room before its first snapshot.
   queueMicrotask(() => {
     if (!peer.destroyed) emit({})
@@ -74,6 +90,9 @@ export function createHostRoom(
 
   return {
     move: (move) => tryMove(move, 0),
-    destroy: () => peer.destroy(),
+    destroy: () => {
+      stopWatching()
+      peer.destroy()
+    },
   }
 }

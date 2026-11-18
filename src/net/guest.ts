@@ -1,5 +1,6 @@
 import { Peer, type DataConnection } from 'peerjs'
 import type { Profile } from '../profile/profile'
+import { keepBrokerAlive, watchConnection } from './liveness'
 import { isMessage, type Message, type RoomSnapshot } from './protocol'
 
 export interface GuestRoom {
@@ -14,21 +15,31 @@ export function joinRoom(
   onEvent: (snapshot: RoomSnapshot) => void,
 ): GuestRoom {
   const peer = new Peer()
+  keepBrokerAlive(peer)
   let conn: DataConnection | null = null
   let snapshot: RoomSnapshot = { status: 'connecting', roomId, you: 1, players: [null, profile] }
+  let stopWatching = () => {}
 
   const emit = (patch: Partial<RoomSnapshot>) => {
     snapshot = { ...snapshot, ...patch }
     onEvent(snapshot)
   }
 
+  // The host leaving kills the room: there is no reconnect, so the guest's peer goes too.
+  const onHostLeft = () => {
+    peer.destroy()
+    emit({ status: 'host-left' })
+  }
+
   peer.on('open', () => {
-    conn = peer.connect(roomId, { reliable: true, serialization: 'json' })
-    conn.on('open', () => {
+    const c = peer.connect(roomId, { reliable: true, serialization: 'json' })
+    conn = c
+    c.on('open', () => {
+      stopWatching = watchConnection(c, onHostLeft)
       const hello: Message = { type: 'hello', name: profile.name, emoji: profile.emoji }
-      void conn?.send(hello)
+      void c.send(hello)
     })
-    conn.on('data', (data) => {
+    c.on('data', (data) => {
       if (!isMessage(data)) return
       if (data.type === 'welcome') {
         emit({ status: 'playing', you: data.you, players: data.players, gameId: data.gameId, state: data.state })
@@ -50,6 +61,9 @@ export function joinRoom(
         void conn.send(intent)
       }
     },
-    destroy: () => peer.destroy(),
+    destroy: () => {
+      stopWatching()
+      peer.destroy()
+    },
   }
 }
