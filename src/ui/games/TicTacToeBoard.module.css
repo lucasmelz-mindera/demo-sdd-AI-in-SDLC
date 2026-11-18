@@ -1,0 +1,31 @@
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  width: min(100%, 20rem);
+  margin: 0 auto;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: inherit;
+  font-size: clamp(2rem, 12vw, 3.5rem);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cell:disabled {
+  cursor: default;
+}
+
+.cell:not(:disabled):hover {
+  background: #eef3fd;
+}
+
+.winning {
+  background: #d7f5dc;
+  box-shadow: inset 0 0 0 3px #2f9e44;
+}

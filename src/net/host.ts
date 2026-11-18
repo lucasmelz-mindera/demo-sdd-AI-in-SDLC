@@ -1,11 +1,12 @@
 import { Peer, type DataConnection } from 'peerjs'
 import { games, isPlayable } from '../games/registry'
-import type { GameId } from '../games/types'
+import type { GameId, PlayerIndex } from '../games/types'
 import { EMOJIS, normalizeName, type Profile } from '../profile/profile'
 import { isMessage, type Message, type RoomSnapshot } from './protocol'
 import { newRoomId } from './roomId'
 
 export interface HostRoom {
+  move(move: unknown): void
   destroy(): void
 }
 
@@ -36,6 +37,14 @@ export function createHostRoom(
     void conn.send(message)
   }
 
+  // Every move, the host's own included, goes through here: validate, apply, broadcast the full state.
+  const tryMove = (move: unknown, player: PlayerIndex) => {
+    if (snapshot.status !== 'playing' || !game.isValidMove(snapshot.state, move, player)) return
+    const state = game.applyMove(snapshot.state, move)
+    if (guest) send(guest, { type: 'state', state })
+    emit({ state })
+  }
+
   peer.on('open', () => emit({ status: 'waiting', roomId }))
 
   peer.on('connection', (conn) => {
@@ -52,6 +61,8 @@ export function createHostRoom(
         const players: [Profile, Profile] = [profile, guestProfile]
         send(conn, { type: 'welcome', you: 1, players, gameId, state: snapshot.state })
         emit({ status: 'playing', players })
+      } else if (data.type === 'move') {
+        tryMove(data.move, 1)
       }
     })
   })
@@ -62,6 +73,7 @@ export function createHostRoom(
   })
 
   return {
+    move: (move) => tryMove(move, 0),
     destroy: () => peer.destroy(),
   }
 }
