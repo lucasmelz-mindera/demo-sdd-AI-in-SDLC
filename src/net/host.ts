@@ -8,6 +8,7 @@ import { newRoomId } from './roomId'
 
 export interface HostRoom {
   move(move: unknown): void
+  rematch(): void
   destroy(): void
 }
 
@@ -18,6 +19,8 @@ export function createHostRoom(
   const game = games[gameId]
   if (!isPlayable(game)) throw new Error(`${gameId} is not playable yet`)
 
+  // Who moves first this round. It flips on every rematch; a new guest starts over with the host first.
+  let firstPlayer: PlayerIndex = 0
   const roomId = newRoomId()
   const peer = new Peer(roomId)
   keepBrokerAlive(peer)
@@ -48,6 +51,15 @@ export function createHostRoom(
     emit({ state })
   }
 
+  // Either player can start the next round, but only once this one has a result.
+  const rematch = () => {
+    if (snapshot.status !== 'playing' || game.getResult(snapshot.state) === null) return
+    firstPlayer = firstPlayer === 0 ? 1 : 0
+    const state = game.initialState(firstPlayer)
+    if (guest) send(guest, { type: 'state', state })
+    emit({ state })
+  }
+
   peer.on('open', () => emit({ status: 'waiting', roomId }))
 
   peer.on('connection', (conn) => {
@@ -72,6 +84,8 @@ export function createHostRoom(
         emit({ status: 'playing', players })
       } else if (data.type === 'move') {
         tryMove(data.move, 1)
+      } else if (data.type === 'rematch') {
+        rematch()
       }
     })
   })
@@ -80,6 +94,7 @@ export function createHostRoom(
   const onGuestLeft = (conn: DataConnection) => {
     if (conn !== guest) return
     guest = null
+    firstPlayer = 0
     emit({ status: 'waiting', players: [profile, null], state: game.initialState(0) })
   }
 
@@ -90,6 +105,7 @@ export function createHostRoom(
 
   return {
     move: (move) => tryMove(move, 0),
+    rematch,
     destroy: () => {
       stopWatching()
       peer.destroy()

@@ -16,14 +16,15 @@ interface Props {
   /** Set when this tab created the room. Without it this tab is a guest. */
   hostSnapshot?: RoomSnapshot
   onHostMove?: (move: unknown) => void
+  onHostRematch?: () => void
 }
 
-export function RoomPage({ roomId, hostSnapshot, onHostMove }: Props) {
+export function RoomPage({ roomId, hostSnapshot, onHostMove, onHostRematch }: Props) {
   const [guestProfile, setGuestProfile] = useState<Profile | null>(null)
 
   if (hostSnapshot) {
     return (
-      <RoomView snapshot={hostSnapshot} onMove={onHostMove}>
+      <RoomView snapshot={hostSnapshot} onMove={onHostMove} onRematch={onHostRematch}>
         <ShareLink roomId={roomId} />
       </RoomView>
     )
@@ -60,7 +61,15 @@ function GuestRoom({ roomId, profile }: { roomId: string; profile: Profile }) {
     return () => joined.destroy()
   }, [roomId, profile])
 
-  return snapshot && <RoomView snapshot={snapshot} onMove={(move) => room.current?.move(move)} />
+  return (
+    snapshot && (
+      <RoomView
+        snapshot={snapshot}
+        onMove={(move) => room.current?.move(move)}
+        onRematch={() => room.current?.rematch()}
+      />
+    )
+  )
 }
 
 /** Statuses the room never leaves: the only way on is back home. */
@@ -69,23 +78,34 @@ const TERMINAL: RoomStatus[] = ['host-left', 'not-found', 'cant-connect', 'room-
 interface RoomViewProps {
   snapshot: RoomSnapshot
   onMove?: (move: unknown) => void
+  onRematch?: () => void
   children?: ReactNode
 }
 
-function RoomView({ snapshot, onMove, children }: RoomViewProps) {
+function RoomView({ snapshot, onMove, onRematch, children }: RoomViewProps) {
   return (
     <>
       <StatusBanner snapshot={snapshot} />
       <PlayerBar players={snapshot.players} you={snapshot.you} gameId={snapshot.gameId} />
       {snapshot.status === 'playing' && <Board snapshot={snapshot} onMove={onMove} />}
+      {onRematch && hasResult(snapshot) && (
+        <button type="button" className={styles.action} onClick={onRematch}>
+          Rematch
+        </button>
+      )}
       {children}
       {TERMINAL.includes(snapshot.status) && (
-        <button type="button" className={styles.home} onClick={goHome}>
+        <button type="button" className={styles.action} onClick={goHome}>
           Back to home
         </button>
       )}
     </>
   )
+}
+
+function hasResult({ status, gameId, state }: RoomSnapshot): boolean {
+  const game = gameId && games[gameId]
+  return status === 'playing' && !!game && isPlayable(game) && state !== undefined && game.getResult(state) !== null
 }
 
 function Board({ snapshot, onMove }: { snapshot: RoomSnapshot; onMove?: (move: unknown) => void }) {

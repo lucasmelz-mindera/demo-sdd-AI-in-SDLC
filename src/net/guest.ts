@@ -6,6 +6,8 @@ import { isMessage, type Message, type RoomSnapshot } from './protocol'
 export interface GuestRoom {
   /** Sends a move intent. The host decides whether it happens; the board only changes when its state arrives. */
   move(move: unknown): void
+  /** Asks the host for the next round. The host ignores it while the game is still in progress. */
+  rematch(): void
   destroy(): void
 }
 
@@ -58,6 +60,12 @@ export function joinRoom(
     move: (move) => {
       if (conn?.open && snapshot.status === 'playing') {
         const intent: Message = { type: 'move', move }
+        void conn.send(intent)
+      }
+    },
+    rematch: () => {
+      if (conn?.open && snapshot.status === 'playing') {
+        const intent: Message = { type: 'rematch' }
         void conn.send(intent)
       }
     },
