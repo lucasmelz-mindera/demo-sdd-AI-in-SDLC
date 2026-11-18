@@ -5,6 +5,7 @@ import type { RoomSnapshot } from './net/protocol'
 import { saveProfile, type Profile } from './profile/profile'
 import { goToRoom, useHashRoute } from './routing/useHashRoute'
 import styles from './App.module.css'
+import { CreateFailed } from './ui/CreateFailed'
 import { HomePage } from './ui/HomePage'
 import { RoomPage } from './ui/RoomPage'
 
@@ -35,6 +36,12 @@ export default function App() {
   const leftHostedRoom = hostedId !== undefined && !(route.name === 'room' && route.id === hostedId)
   if (leftHostedRoom) setHost(null)
 
+  const snapshot = host?.snapshot
+  const retryCreate = () => {
+    const profile = snapshot?.players[0]
+    if (snapshot?.gameId && profile) createRoom(snapshot.gameId, profile)
+  }
+
   const hostRoom = host?.room
   useEffect(() => () => hostRoom?.destroy(), [hostRoom])
 
@@ -48,6 +55,8 @@ export default function App() {
           onHostMove={host?.room.move}
           onHostRematch={host?.room.rematch}
         />
+      ) : snapshot?.status === 'create-failed' ? (
+        <CreateFailed snapshot={snapshot} onRetry={retryCreate} onHome={() => setHost(null)} />
       ) : (
         <HomePage creating={host?.snapshot.status === 'creating'} onCreate={createRoom} />
       )}

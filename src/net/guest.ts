@@ -1,7 +1,10 @@
-import { Peer, type DataConnection } from 'peerjs'
+import { Peer, PeerErrorType, type DataConnection } from 'peerjs'
 import type { Profile } from '../profile/profile'
 import { keepBrokerAlive, watchConnection } from './liveness'
-import { isMessage, type Message, type RoomSnapshot } from './protocol'
+import { isMessage, type Message, type RoomSnapshot, type RoomStatus } from './protocol'
+
+/** No welcome, no error, nothing: give up on the room after this long. */
+const CONNECT_TIMEOUT_MS = 10_000
 
 export interface GuestRoom {
   /** Sends a move intent. The host decides whether it happens; the board only changes when its state arrives. */
@@ -27,11 +30,23 @@ export function joinRoom(
     onEvent(snapshot)
   }
 
-  // The host leaving kills the room: there is no reconnect, so the guest's peer goes too.
-  const onHostLeft = () => {
+  // Every way out of the room ends here, once. There is no reconnect, so the guest's peer goes too.
+  const end = (status: Extract<RoomStatus, 'host-left' | 'not-found' | 'cant-connect' | 'room-full'>) => {
+    if (peer.destroyed) return
+    clearTimeout(timeout)
+    stopWatching()
     peer.destroy()
-    emit({ status: 'host-left' })
+    emit({ status })
   }
+  const onHostLeft = () => end('host-left')
+
+  const timeout = setTimeout(() => end('cant-connect'), CONNECT_TIMEOUT_MS)
+
+  // Errors only end a room that is still connecting; once playing, broker trouble is left to keepBrokerAlive.
+  peer.on('error', (err) => {
+    if (snapshot.status !== 'connecting') return
+    end(err.type === PeerErrorType.PeerUnavailable ? 'not-found' : 'cant-connect')
+  })
 
   peer.on('open', () => {
     const c = peer.connect(roomId, { reliable: true, serialization: 'json' })
@@ -43,7 +58,10 @@ export function joinRoom(
     })
     c.on('data', (data) => {
       if (!isMessage(data)) return
-      if (data.type === 'welcome') {
+      if (data.type === 'room-full') {
+        end('room-full')
+      } else if (data.type === 'welcome') {
+        clearTimeout(timeout)
         emit({ status: 'playing', you: data.you, players: data.players, gameId: data.gameId, state: data.state })
       } else if (data.type === 'state' && snapshot.status === 'playing') {
         emit({ state: data.state })
@@ -70,6 +88,7 @@ export function joinRoom(
       }
     },
     destroy: () => {
+      clearTimeout(timeout)
       stopWatching()
       peer.destroy()
     },

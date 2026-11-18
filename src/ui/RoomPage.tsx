@@ -74,6 +74,8 @@ function GuestRoom({ roomId, profile }: { roomId: string; profile: Profile }) {
 
 /** Statuses the room never leaves: the only way on is back home. */
 const TERMINAL: RoomStatus[] = ['host-left', 'not-found', 'cant-connect', 'room-full', 'create-failed']
+/** Terminal statuses reached without ever sitting at the table, so there are no players to show. */
+const NEVER_SEATED: RoomStatus[] = ['not-found', 'cant-connect', 'room-full', 'create-failed']
 
 interface RoomViewProps {
   snapshot: RoomSnapshot
@@ -86,7 +88,9 @@ function RoomView({ snapshot, onMove, onRematch, children }: RoomViewProps) {
   return (
     <>
       <StatusBanner snapshot={snapshot} />
-      <PlayerBar players={snapshot.players} you={snapshot.you} gameId={snapshot.gameId} />
+      {!NEVER_SEATED.includes(snapshot.status) && (
+        <PlayerBar players={snapshot.players} you={snapshot.you} gameId={snapshot.gameId} />
+      )}
       {snapshot.status === 'playing' && <Board snapshot={snapshot} onMove={onMove} />}
       {onRematch && hasResult(snapshot) && (
         <button type="button" className={styles.action} onClick={onRematch}>

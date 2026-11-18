@@ -1,10 +1,12 @@
-import { Peer, type DataConnection } from 'peerjs'
+import { Peer, PeerErrorType, type DataConnection } from 'peerjs'
 import { games, isPlayable } from '../games/registry'
 import type { GameId, PlayerIndex } from '../games/types'
 import { EMOJIS, normalizeName, type Profile } from '../profile/profile'
 import { keepBrokerAlive, watchConnection } from './liveness'
 import { isMessage, type Message, type RoomSnapshot } from './protocol'
 import { newRoomId } from './roomId'
+
+const MAX_TRIES = 3
 
 export interface HostRoom {
   move(move: unknown): void
@@ -21,9 +23,8 @@ export function createHostRoom(
 
   // Who moves first this round. It flips on every rematch; a new guest starts over with the host first.
   let firstPlayer: PlayerIndex = 0
-  const roomId = newRoomId()
-  const peer = new Peer(roomId)
-  keepBrokerAlive(peer)
+  let peer: Peer
+  let tries = 0
   let snapshot: RoomSnapshot = {
     status: 'creating',
     you: 0,
@@ -60,11 +61,32 @@ export function createHostRoom(
     emit({ state })
   }
 
-  peer.on('open', () => emit({ status: 'waiting', roomId }))
+  // The room ID is the peer ID. A taken ID gets a fresh ID and a fresh Peer, up to MAX_TRIES in all.
+  const register = () => {
+    tries += 1
+    const roomId = newRoomId()
+    peer = new Peer(roomId)
+    keepBrokerAlive(peer)
+    peer.on('open', () => emit({ status: 'waiting', roomId }))
+    peer.on('connection', onConnection)
+    peer.on('error', (err) => {
+      if (snapshot.status !== 'creating') return
+      peer.destroy()
+      if (err.type === PeerErrorType.UnavailableID && tries < MAX_TRIES) register()
+      else emit({ status: 'create-failed' })
+    })
+  }
 
-  peer.on('connection', (conn) => {
-    // A second visitor is turned away in "Room error states" (#12); for now they are ignored.
-    if (guest) return
+  // Anyone after the guest hears "room-full". Closing before `open` would drop the message, so wait for it.
+  const turnAway = (conn: DataConnection) => {
+    conn.on('open', () => {
+      send(conn, { type: 'room-full' })
+      conn.close({ flush: true })
+    })
+  }
+
+  const onConnection = (conn: DataConnection) => {
+    if (guest) return turnAway(conn)
     guest = conn
     conn.on('open', () => {
       stopWatching = watchConnection(conn, () => onGuestLeft(conn))
@@ -88,7 +110,7 @@ export function createHostRoom(
         rematch()
       }
     })
-  })
+  }
 
   // The seat opens again and the next guest starts a fresh game.
   const onGuestLeft = (conn: DataConnection) => {
@@ -97,6 +119,8 @@ export function createHostRoom(
     firstPlayer = 0
     emit({ status: 'waiting', players: [profile, null], state: game.initialState(0) })
   }
+
+  register()
 
   // Never call onEvent synchronously, so the caller can hold the returned room before its first snapshot.
   queueMicrotask(() => {
