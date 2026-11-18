@@ -46,6 +46,7 @@ export default function App() {
           roomId={route.id}
           hostSnapshot={route.id === hostedId ? host?.snapshot : undefined}
           onHostMove={host?.room.move}
+          onHostRematch={host?.room.rematch}
         />
       ) : (
         <HomePage creating={host?.snapshot.status === 'creating'} onCreate={createRoom} />
