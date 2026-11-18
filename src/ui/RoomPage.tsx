@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { games, isPlayable } from '../games/registry'
 import { joinRoom, type GuestRoom as GuestRoomHandle } from '../net/guest'
-import type { RoomSnapshot } from '../net/protocol'
+import type { RoomSnapshot, RoomStatus } from '../net/protocol'
 import { saveProfile, type Profile } from '../profile/profile'
+import { goHome } from '../routing/useHashRoute'
 import { boards } from './games/boards'
 import { ProfileForm } from './ProfileForm'
 import { PlayerBar } from './PlayerBar'
@@ -62,6 +63,9 @@ function GuestRoom({ roomId, profile }: { roomId: string; profile: Profile }) {
   return snapshot && <RoomView snapshot={snapshot} onMove={(move) => room.current?.move(move)} />
 }
 
+/** Statuses the room never leaves: the only way on is back home. */
+const TERMINAL: RoomStatus[] = ['host-left', 'not-found', 'cant-connect', 'room-full', 'create-failed']
+
 interface RoomViewProps {
   snapshot: RoomSnapshot
   onMove?: (move: unknown) => void
@@ -75,6 +79,11 @@ function RoomView({ snapshot, onMove, children }: RoomViewProps) {
       <PlayerBar players={snapshot.players} you={snapshot.you} gameId={snapshot.gameId} />
       {snapshot.status === 'playing' && <Board snapshot={snapshot} onMove={onMove} />}
       {children}
+      {TERMINAL.includes(snapshot.status) && (
+        <button type="button" className={styles.home} onClick={goHome}>
+          Back to home
+        </button>
+      )}
     </>
   )
 }

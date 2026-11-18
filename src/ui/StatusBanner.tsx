@@ -6,6 +6,7 @@ const MESSAGES: Partial<Record<RoomStatus, string>> = {
   creating: 'Creating room…',
   waiting: 'Waiting for opponent…',
   connecting: 'Connecting…',
+  'host-left': 'Host left the room',
 }
 
 /** While playing: whose turn it is, or the result, read from the state through the game definition. */
