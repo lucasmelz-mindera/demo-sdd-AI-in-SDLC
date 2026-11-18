@@ -9,6 +9,14 @@
       "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)"
     ]
   }
 }
